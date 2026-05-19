@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Analyseur NanoRéseau - Version corrigée</title>
+    <title>Analyseur NanoRéseau</title>
     <style>
         * {
             box-sizing: border-box;
@@ -23,16 +23,11 @@
             color: white;
             padding: 20px 30px;
             border-radius: 16px;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
             margin-bottom: 25px;
         }
         h1 {
             margin: 0 0 8px 0;
             font-size: 1.8rem;
-        }
-        .subtitle {
-            opacity: 0.9;
-            font-size: 0.95rem;
         }
         .upload-area {
             background: white;
@@ -41,16 +36,10 @@
             padding: 30px;
             text-align: center;
             margin-bottom: 25px;
-            transition: all 0.3s;
             cursor: pointer;
         }
         .upload-area:hover {
             background: #e8f5e9;
-            border-color: #1a472a;
-        }
-        .upload-icon {
-            font-size: 48px;
-            margin-bottom: 12px;
         }
         #folderInput {
             display: none;
@@ -60,73 +49,50 @@
             border-radius: 16px;
             padding: 20px;
             margin-bottom: 25px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         }
         .info-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
             margin-top: 12px;
         }
         .info-card {
             background: #f8fafc;
-            padding: 12px 18px;
+            padding: 12px;
             border-radius: 12px;
             border-left: 4px solid #2d6a4f;
-        }
-        .info-label {
-            font-weight: 600;
-            color: #1a472a;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-        }
-        .info-value {
-            font-size: 1.2rem;
-            font-weight: 500;
-            margin-top: 5px;
         }
         .main-tabs {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 8px;
+            margin-bottom: 20px;
         }
         .main-tab-btn {
-            background: none;
+            background: #e2e8f0;
             border: none;
             padding: 10px 24px;
             font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
             border-radius: 30px;
-            transition: all 0.2s;
-            color: #4a5568;
         }
         .main-tab-btn.active {
             background: #2d6a4f;
             color: white;
-            box-shadow: 0 2px 8px rgba(45,106,79,0.3);
         }
         .sub-tabs {
             display: flex;
             flex-wrap: wrap;
-            gap: 5px;
+            gap: 8px;
             margin-bottom: 20px;
-            padding: 5px 0;
-            border-bottom: 1px solid #cbd5e1;
         }
         .sub-tab-btn {
             background: #f1f5f9;
             border: none;
             padding: 6px 16px;
-            font-size: 0.85rem;
-            font-weight: 500;
             cursor: pointer;
             border-radius: 20px;
-            transition: all 0.2s;
-            color: #334155;
         }
         .sub-tab-btn.active {
             background: #40916c;
@@ -136,7 +102,6 @@
             background: white;
             border-radius: 16px;
             overflow-x: auto;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
             padding: 16px;
         }
         table {
@@ -144,54 +109,18 @@
             border-collapse: collapse;
             font-size: 0.8rem;
         }
-        th {
-            background: #f1f5f9;
-            padding: 10px 6px;
-            text-align: center;
-            position: sticky;
-            top: 0;
-            font-weight: 600;
-            color: #1e293b;
-            border-bottom: 2px solid #cbd5e1;
-        }
-        td {
-            padding: 8px 6px;
+        th, td {
+            padding: 8px;
             text-align: center;
             border-bottom: 1px solid #e2e8f0;
         }
-        tr:hover {
-            background: #f8fafc;
-        }
-        .value-cell {
-            font-family: monospace;
-            font-weight: 500;
-        }
-        .status-bits {
-            font-family: monospace;
-            font-size: 0.7rem;
+        th {
             background: #f1f5f9;
-            padding: 4px 8px;
-            border-radius: 12px;
-            display: inline-block;
         }
         .empty-data {
             text-align: center;
             padding: 40px;
             color: #64748b;
-            font-style: italic;
-        }
-        .error-msg {
-            color: #dc2626;
-            background: #fee2e2;
-            padding: 12px;
-            border-radius: 12px;
-            margin-top: 15px;
-        }
-        .success-msg {
-            color: #16a34a;
-            background: #dcfce7;
-            padding: 12px;
-            border-radius: 12px;
         }
         footer {
             text-align: center;
@@ -199,36 +128,24 @@
             color: #64748b;
             font-size: 0.8rem;
         }
-        .voltage-unit {
-            font-size: 0.7rem;
-            color: #64748b;
-        }
-        @media (max-width: 700px) {
-            td, th { font-size: 0.7rem; padding: 5px 3px; }
-            .main-tab-btn { padding: 6px 14px; font-size: 0.8rem; }
-            .sub-tab-btn { padding: 4px 10px; font-size: 0.7rem; }
-        }
     </style>
 </head>
 <body>
 <div class="container">
     <div class="header">
-        <h1>🔋 NanoRéseau Data Analyzer v2</h1>
-        <div class="subtitle">Import d'un dossier NRXXX_JJMMAA1_JJMMAA2 · Parsing C/E/T/EC/EvNR/R avec sous-onglets clients</div>
+        <h1>🔋 NanoRéseau Data Analyzer</h1>
+        <div>Import d'un dossier NRXXX_JJMMAA1_JJMMAA2</div>
     </div>
     <div class="upload-area" id="uploadArea">
-        <div class="upload-icon">📁</div>
-        <div><strong>Cliquez ou déposez un dossier</strong><br>Format attendu: NR001_010526_110526</div>
+        <div>📁 Cliquez ou déposez un dossier</div>
         <input type="file" id="folderInput" webkitdirectory directory multiple>
     </div>
-
-    <div id="infoSection" style="display:none;"></div>
-    <div id="mainTabsContainer" style="display:none;"></div>
-    <div id="subTabsContainer" style="display:none;"></div>
+    <div id="infoSection"></div>
+    <div id="mainTabsContainer"></div>
+    <div id="subTabsContainer"></div>
     <div id="tablesContent"></div>
-    <footer>Valeurs tension en mV (affichées en V) · Données hexadécimales décodées</footer>
+    <footer>Parsing C/E/T/EC/EvNR/R avec sauvegarde automatique</footer>
 </div>
-
 <script src="parser.js"></script>
 <script src="main.js"></script>
 </body>

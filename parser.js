@@ -1,301 +1,23 @@
-// parser.js - Module de parsing corrigé
+// parser.js - Version finale
 window.DataParser = (function() {
     
-    // Convertir 2 octets hexadécimaux en entier 16 bits (big-endian)
-    function hexPairToInt16(highHex, lowHex) {
-        return (parseInt(highHex, 16) << 8) | parseInt(lowHex, 16);
-    }
-    
-    // Convertir 1 octet hexadécimal en entier
+    // Pour les valeurs hexadécimales (high, low, etc.)
     function hexToInt(hex) {
         return parseInt(hex, 16);
     }
     
-    // Parser les données pour Crédit (B2/B3) ou Energie (A2/A3)
-    function parseCreditEnergie(hexTokens, startIdx) {
-        let records = []; // { date, time, values: [{ high, low }] dans l'ordre des points}
-        let i = startIdx;
-        
-        while (i < hexTokens.length) {
-            // Chercher un marqueur d'horodatage (B2 ou A2)
-            if (hexTokens[i] === 'B2' || hexTokens[i] === 'A2') {
-                // Horodatage: B2 JJ MM AA HH MM
-                if (i + 6 > hexTokens.length) break;
-                let day = hexToInt(hexTokens[i+1]);
-                let month = hexToInt(hexTokens[i+2]);
-                let year = 2000 + hexToInt(hexTokens[i+3]);
-                let hour = hexToInt(hexTokens[i+4]);
-                let min = hexToInt(hexTokens[i+5]);
-                let dateStr = `${day.toString().padStart(2,'0')}/${month.toString().padStart(2,'0')}/${year}`;
-                let timeStr = `${hour.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
-                i += 6;
-                
-                // Collecter les données qui suivent jusqu'au prochain B2/A2 ou fin
-                let valueRecords = [];
-                while (i < hexTokens.length && hexTokens[i] !== 'B2' && hexTokens[i] !== 'A2') {
-                    if (hexTokens[i] === 'B3' || hexTokens[i] === 'A3') {
-                        // B3/A3: jour mois an haute basse
-                        if (i + 5 > hexTokens.length) break;
-                        let dataDay = hexToInt(hexTokens[i+1]);
-                        let dataMonth = hexToInt(hexTokens[i+2]);
-                        let dataYear = 2000 + hexToInt(hexTokens[i+3]);
-                        let high = hexToInt(hexTokens[i+4]);
-                        let low = hexToInt(hexTokens[i+5]);
-                        let dataDateStr = `${dataDay.toString().padStart(2,'0')}/${dataMonth.toString().padStart(2,'0')}/${dataYear}`;
-                        valueRecords.push({
-                            date: dataDateStr,
-                            high: high,
-                            low: low
-                        });
-                        i += 6;
-                    } else if (hexTokens[i] === 'FF') {
-                        // FF est un remplissage, on ignore
-                        i++;
-                    } else {
-                        // Si ce n'est ni B3/A3 ni FF, on avance (cas improbable)
-                        i++;
-                    }
-                }
-                
-                if (valueRecords.length > 0) {
-                    records.push({
-                        date: dateStr,
-                        time: timeStr,
-                        values: valueRecords
-                    });
-                }
-            } else {
-                i++;
-            }
-        }
-        return records;
+    // Pour les dates (jour, mois, année, heure, minute) - c'est du décimal
+    function decToInt(dec) {
+        return parseInt(dec, 10);
     }
     
-    // Parser Tension (C2/C3) - valeurs sur 2 octets en mV
-    function parseTension(hexTokens) {
-        let records = [];
-        let i = 0;
-        
-        while (i < hexTokens.length) {
-            if (hexTokens[i] === 'C2') {
-                // Horodatage: C2 JJ MM AA HH MM
-                if (i + 6 > hexTokens.length) break;
-                let day = hexToInt(hexTokens[i+1]);
-                let month = hexToInt(hexTokens[i+2]);
-                let year = 2000 + hexToInt(hexTokens[i+3]);
-                let hour = hexToInt(hexTokens[i+4]);
-                let min = hexToInt(hexTokens[i+5]);
-                let dateStr = `${day.toString().padStart(2,'0')}/${month.toString().padStart(2,'0')}/${year}`;
-                let timeStr = `${hour.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
-                i += 6;
-                
-                let tensionRecords = [];
-                while (i < hexTokens.length && hexTokens[i] !== 'C2') {
-                    if (hexTokens[i] === 'C3') {
-                        // C3: jour mois an high low (16 bits)
-                        if (i + 5 > hexTokens.length) break;
-                        let dataDay = hexToInt(hexTokens[i+1]);
-                        let dataMonth = hexToInt(hexTokens[i+2]);
-                        let dataYear = 2000 + hexToInt(hexTokens[i+3]);
-                        let highByte = hexTokens[i+4];
-                        let lowByte = hexTokens[i+5];
-                        let mV = hexPairToInt16(highByte, lowByte);
-                        let dataDateStr = `${dataDay.toString().padStart(2,'0')}/${dataMonth.toString().padStart(2,'0')}/${dataYear}`;
-                        tensionRecords.push({
-                            date: dataDateStr,
-                            mV: mV,
-                            volts: (mV / 1000).toFixed(2)
-                        });
-                        i += 6;
-                    } else if (hexTokens[i] === 'FF') {
-                        i++;
-                    } else {
-                        i++;
-                    }
-                }
-                
-                if (tensionRecords.length > 0) {
-                    records.push({
-                        date: dateStr,
-                        time: timeStr,
-                        values: tensionRecords
-                    });
-                }
-            } else {
-                i++;
-            }
-        }
-        return records;
-    }
-    
-    // Parser Evenement Client (EC)
-    function parseEvenementClient(content) {
-        let hexTokens = extractHexTokens(content);
-        let events = [];
-        let i = 0;
-        
-        while (i < hexTokens.length) {
-            // Priorité à E2 et E3 - on ignore E5 comme bloqueur
-            if (hexTokens[i] === 'E2') {
-                // Horodatage
-                if (i + 6 > hexTokens.length) break;
-                let day = hexToInt(hexTokens[i+1]);
-                let month = hexToInt(hexTokens[i+2]);
-                let year = 2000 + hexToInt(hexTokens[i+3]);
-                let hour = hexToInt(hexTokens[i+4]);
-                let min = hexToInt(hexTokens[i+5]);
-                let dateStr = `${day.toString().padStart(2,'0')}/${month.toString().padStart(2,'0')}/${year}`;
-                let timeStr = `${hour.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
-                i += 6;
-                
-                // Attendre E3
-                while (i < hexTokens.length && hexTokens[i] !== 'E3') i++;
-                if (i + 9 >= hexTokens.length) break;
-                
-                if (hexTokens[i] === 'E3') {
-                    let client = hexToInt(hexTokens[i+1]);
-                    let etatByte = hexToInt(hexTokens[i+2]);
-                    let pFort = hexToInt(hexTokens[i+3]);
-                    let pFaible = hexToInt(hexTokens[i+4]);
-                    
-                    let etatBits = {
-                        actif: (etatByte & 1) ? 'Actif' : 'Inactif',
-                        creditNul: (etatByte & 2) ? '✓' : '✗',
-                        energieEpuisee: (etatByte & 4) ? '✓' : '✗',
-                        surcharge: (etatByte & 8) ? '✓' : '✗',
-                        puissanceDepassee: (etatByte & 16) ? '✓' : '✗'
-                    };
-                    
-                    events.push({
-                        date: dateStr,
-                        time: timeStr,
-                        client: client,
-                        etat: etatBits,
-                        pFort: pFort,
-                        pFaible: pFaible
-                    });
-                    i += 5;
-                }
-            } else {
-                i++;
-            }
-        }
-        
-        // hasData = true s'il y a au moins un événement, false sinon
-        return { hasData: events.length > 0, events };
-    }
-    
-    // Parser Evenement NanoReseau (EvNR)
-    function parseEvNR(content) {
-        let hexTokens = extractHexTokens(content);
-        let events = [];
-        let i = 0;
-        
-        while (i < hexTokens.length) {
-            if (hexTokens[i] === 'D2') {
-                if (i + 6 > hexTokens.length) break;
-                let day = hexToInt(hexTokens[i+1]);
-                let month = hexToInt(hexTokens[i+2]);
-                let year = 2000 + hexToInt(hexTokens[i+3]);
-                let hour = hexToInt(hexTokens[i+4]);
-                let min = hexToInt(hexTokens[i+5]);
-                let dateStr = `${day.toString().padStart(2,'0')}/${month.toString().padStart(2,'0')}/${year}`;
-                let timeStr = `${hour.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
-                i += 6;
-                
-                while (i < hexTokens.length && hexTokens[i] !== 'D3') i++;
-                if (i + 3 >= hexTokens.length) break;
-                
-                if (hexTokens[i] === 'D3') {
-                    let etatByte = hexToInt(hexTokens[i+1]);
-                    let pFort = hexToInt(hexTokens[i+2]);
-                    let pFaible = hexToInt(hexTokens[i+3]);
-                    
-                    let etat = {
-                        modeEco: (etatByte & 1) ? 'ON' : 'OFF',
-                        delestageTotal: (etatByte & 2) ? '✓' : '✗',
-                        delestagePartiel: (etatByte & 4) ? '✓' : '✗'
-                    };
-                    
-                    events.push({
-                        date: dateStr,
-                        time: timeStr,
-                        etat: etat,
-                        pFort: pFort,
-                        pFaible: pFaible
-                    });
-                    i += 4;
-                }
-            } else {
-                i++;
-            }
-        }
-        return { hasData: events.length > 0, events };
-    }
-    
-    // Parser Recharge
-    function parseRecharge(content) {
-        let hexTokens = extractHexTokens(content);
-        let events = [];
-        let i = 0;
-        
-        while (i < hexTokens.length) {
-            if (hexTokens[i] === 'F2') {
-                if (i + 6 > hexTokens.length) break;
-                let day = hexToInt(hexTokens[i+1]);
-                let month = hexToInt(hexTokens[i+2]);
-                let year = 2000 + hexToInt(hexTokens[i+3]);
-                let hour = hexToInt(hexTokens[i+4]);
-                let min = hexToInt(hexTokens[i+5]);
-                let dateStr = `${day.toString().padStart(2,'0')}/${month.toString().padStart(2,'0')}/${year}`;
-                let timeStr = `${hour.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
-                i += 6;
-                
-                while (i < hexTokens.length && hexTokens[i] !== 'F3') i++;
-                if (i + 7 >= hexTokens.length) break;
-                
-                if (hexTokens[i] === 'F3') {
-                    let typeCode = hexToInt(hexTokens[i+1]);
-                    let pFort = hexToInt(hexTokens[i+2]);
-                    let pFaible = hexToInt(hexTokens[i+3]);
-                    let data1 = hexToInt(hexTokens[i+4]);
-                    let data2 = hexToInt(hexTokens[i+5]);
-                    let data3 = hexToInt(hexTokens[i+6]);
-                    let data4 = hexToInt(hexTokens[i+7]);
-                    
-                    let typeBits = {
-                        codeRecharge: (typeCode & 1) ? '✓' : '✗',
-                        codeEco: (typeCode & 2) ? '✓' : '✗',
-                        codeEP: (typeCode & 4) ? '✓' : '✗',
-                        codeTolerance: (typeCode & 8) ? '✓' : '✗',
-                        codeForfait: (typeCode & 16) ? '✓' : '✗'
-                    };
-                    
-                    events.push({
-                        date: dateStr,
-                        time: timeStr,
-                        typeCode: typeBits,
-                        pFort: pFort,
-                        pFaible: pFaible,
-                        data1, data2, data3, data4
-                    });
-                    i += 8;
-                }
-            } else {
-                i++;
-            }
-        }
-        return { hasData: events.length > 0, events };
-    }
-    
-    // Extraire les tokens hexadécimaux d'un contenu texte
-    function extractHexTokens(content) {
+    function extractTokens(content) {
         let tokens = [];
         let lines = content.split(/\r?\n/);
         for (let line of lines) {
             let parts = line.trim().split(/\s+/);
             for (let part of parts) {
-                if (part.match(/^[0-9A-Fa-f]{2}$/)) {
+                if (part.match(/^[0-9A-Fa-f]{2}$/i)) {
                     tokens.push(part.toUpperCase());
                 }
             }
@@ -303,17 +25,217 @@ window.DataParser = (function() {
         return tokens;
     }
     
-    // Lire un fichier et extraire ses données
-    async function readFile(file) {
-        return await file.text();
+    function parseGeneric(hexTokens, markerSession, markerData, is16Bits) {
+        let results = [];
+        let i = 0;
+        
+        while (i < hexTokens.length) {
+            if (hexTokens[i] === markerSession) {
+                if (i + 6 > hexTokens.length) break;
+                
+                // DATES : conversion décimale
+                let sessionDay = decToInt(hexTokens[i+1]);
+                let sessionMonth = decToInt(hexTokens[i+2]);
+                let sessionYear = 2000 + decToInt(hexTokens[i+3]);
+                let sessionHour = decToInt(hexTokens[i+4]);
+                let sessionMin = decToInt(hexTokens[i+5]);
+                let sessionDate = `${sessionDay.toString().padStart(2,'0')}/${sessionMonth.toString().padStart(2,'0')}/${sessionYear}`;
+                let sessionTime = `${sessionHour.toString().padStart(2,'0')}:${sessionMin.toString().padStart(2,'0')}`;
+                i += 6;
+                
+                while (i < hexTokens.length && hexTokens[i] !== markerSession) {
+                    if (hexTokens[i] === markerData) {
+                        if (i + 5 > hexTokens.length) break;
+                        
+                        // DATES : conversion décimale
+                        let dataDay = decToInt(hexTokens[i+1]);
+                        let dataMonth = decToInt(hexTokens[i+2]);
+                        let dataYear = 2000 + decToInt(hexTokens[i+3]);
+                        let dataDate = `${dataDay.toString().padStart(2,'0')}/${dataMonth.toString().padStart(2,'0')}/${dataYear}`;
+                        
+                        // VALEURS : conversion hexadécimale
+                        let highByte = hexTokens[i+4];
+                        let lowByte = hexTokens[i+5];
+                        
+                        if (is16Bits) {
+                            let value16 = (hexToInt(highByte) << 8) | hexToInt(lowByte);
+                            results.push({
+                                sessionDate: sessionDate,
+                                sessionTime: sessionTime,
+                                measureDate: dataDate,
+                                value: value16,
+                                volts: (value16 / 1000).toFixed(2)
+                            });
+                        } else {
+                            results.push({
+                                sessionDate: sessionDate,
+                                sessionTime: sessionTime,
+                                measureDate: dataDate,
+                                high: hexToInt(highByte),
+                                low: hexToInt(lowByte)
+                            });
+                        }
+                        i += 6;
+                    } else {
+                        i++;
+                    }
+                }
+            } else {
+                i++;
+            }
+        }
+        return results;
     }
     
-    // Parser principal
-    async function parseDirectory(files) {
-        let nrInfo = { nrNumber: null, startDate: null, endDate: null };
-        let folderName = null;
+    function parseCredit(content) {
+        let tokens = extractTokens(content);
+        return parseGeneric(tokens, 'B2', 'B3', false);
+    }
+    
+    function parseEnergie(content) {
+        let tokens = extractTokens(content);
+        return parseGeneric(tokens, 'A2', 'A3', false);
+    }
+    
+    function parseTension(content) {
+        let tokens = extractTokens(content);
+        return parseGeneric(tokens, 'C2', 'C3', true);
+    }
+    
+    function parseEvenementClient(content) {
+        let tokens = extractTokens(content);
+        let events = [];
+        let i = 0;
         
-        // Extraire le nom du dossier
+        while (i < tokens.length) {
+            if (tokens[i] === 'E2') {
+                if (i + 6 > tokens.length) break;
+                let day = decToInt(tokens[i+1]);
+                let month = decToInt(tokens[i+2]);
+                let year = 2000 + decToInt(tokens[i+3]);
+                let hour = decToInt(tokens[i+4]);
+                let min = decToInt(tokens[i+5]);
+                let date = `${day.toString().padStart(2,'0')}/${month.toString().padStart(2,'0')}/${year}`;
+                let time = `${hour.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
+                i += 6;
+                
+                while (i < tokens.length && tokens[i] !== 'E3') i++;
+                if (i + 5 > tokens.length) break;
+                
+                if (tokens[i] === 'E3') {
+                    let client = decToInt(tokens[i+1]);
+                    let etatByte = hexToInt(tokens[i+2]);
+                    let pFort = hexToInt(tokens[i+3]);
+                    let pFaible = hexToInt(tokens[i+4]);
+                    
+                    events.push({
+                        date: date, time: time, client: client,
+                        etat: {
+                            actif: (etatByte & 1) ? 'Actif' : 'Inactif',
+                            creditNul: (etatByte & 2) ? 'Oui' : 'Non',
+                            energieEpuisee: (etatByte & 4) ? 'Oui' : 'Non',
+                            surcharge: (etatByte & 8) ? 'Oui' : 'Non',
+                            puissanceDepassee: (etatByte & 16) ? 'Oui' : 'Non'
+                        },
+                        pFort: pFort, pFaible: pFaible
+                    });
+                    i += 5;
+                }
+            } else { i++; }
+        }
+        return { hasData: events.length > 0, events };
+    }
+    
+    function parseEvNR(content) {
+        let tokens = extractTokens(content);
+        let events = [];
+        let i = 0;
+        
+        while (i < tokens.length) {
+            if (tokens[i] === 'D2') {
+                if (i + 6 > tokens.length) break;
+                let day = decToInt(tokens[i+1]);
+                let month = decToInt(tokens[i+2]);
+                let year = 2000 + decToInt(tokens[i+3]);
+                let hour = decToInt(tokens[i+4]);
+                let min = decToInt(tokens[i+5]);
+                let date = `${day.toString().padStart(2,'0')}/${month.toString().padStart(2,'0')}/${year}`;
+                let time = `${hour.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
+                i += 6;
+                
+                while (i < tokens.length && tokens[i] !== 'D3') i++;
+                if (i + 4 > tokens.length) break;
+                
+                if (tokens[i] === 'D3') {
+                    let etatByte = hexToInt(tokens[i+1]);
+                    let pFort = hexToInt(tokens[i+2]);
+                    let pFaible = hexToInt(tokens[i+3]);
+                    
+                    events.push({
+                        date: date, time: time,
+                        etat: {
+                            modeEco: (etatByte & 1) ? 'ON' : 'OFF',
+                            delestageTotal: (etatByte & 2) ? 'Oui' : 'Non',
+                            delestagePartiel: (etatByte & 4) ? 'Oui' : 'Non'
+                        },
+                        pFort: pFort, pFaible: pFaible
+                    });
+                    i += 4;
+                }
+            } else { i++; }
+        }
+        return { hasData: events.length > 0, events };
+    }
+    
+    function parseRecharge(content) {
+        let tokens = extractTokens(content);
+        let events = [];
+        let i = 0;
+        
+        while (i < tokens.length) {
+            if (tokens[i] === 'F2') {
+                if (i + 6 > tokens.length) break;
+                let day = decToInt(tokens[i+1]);
+                let month = decToInt(tokens[i+2]);
+                let year = 2000 + decToInt(tokens[i+3]);
+                let hour = decToInt(tokens[i+4]);
+                let min = decToInt(tokens[i+5]);
+                let date = `${day.toString().padStart(2,'0')}/${month.toString().padStart(2,'0')}/${year}`;
+                let time = `${hour.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
+                i += 6;
+                
+                while (i < tokens.length && tokens[i] !== 'F3') i++;
+                if (i + 8 > tokens.length) break;
+                
+                if (tokens[i] === 'F3') {
+                    let typeCode = hexToInt(tokens[i+1]);
+                    let pFort = hexToInt(tokens[i+2]);
+                    let pFaible = hexToInt(tokens[i+3]);
+                    
+                    events.push({
+                        date: date, time: time,
+                        typeCode: {
+                            recharge: (typeCode & 1) ? '✓' : '✗',
+                            eco: (typeCode & 2) ? '✓' : '✗',
+                            ep: (typeCode & 4) ? '✓' : '✗',
+                            tolerance: (typeCode & 8) ? '✓' : '✗',
+                            forfait: (typeCode & 16) ? '✓' : '✗'
+                        },
+                        pFort: pFort, pFaible: pFaible,
+                        data1: hexToInt(tokens[i+4]), data2: hexToInt(tokens[i+5]),
+                        data3: hexToInt(tokens[i+6]), data4: hexToInt(tokens[i+7])
+                    });
+                    i += 8;
+                }
+            } else { i++; }
+        }
+        return { hasData: events.length > 0, events };
+    }
+    
+    async function parseDirectory(files) {
+        let folderName = null;
+        let nrInfo = { nrNumber: null, startDate: null, endDate: null };
+        
         for (let file of files) {
             if (file.webkitRelativePath) {
                 let parts = file.webkitRelativePath.split('/');
@@ -321,79 +243,44 @@ window.DataParser = (function() {
             }
         }
         
-        // Parser le nom du dossier
         if (folderName) {
-            let matchNr = folderName.match(/^NR(\d+)_(\d{6})_(\d{6})$/);
-            if (matchNr) {
-                nrInfo.nrNumber = parseInt(matchNr[1]);
-                let start = matchNr[2];
-                let end = matchNr[3];
+            let match = folderName.match(/^NR(\d+)_(\d{6})_(\d{6})$/);
+            if (match) {
+                nrInfo.nrNumber = parseInt(match[1]);
+                let start = match[2];
+                let end = match[3];
                 nrInfo.startDate = `${start.slice(0,2)}/${start.slice(2,4)}/${start.slice(4,6)}`;
                 nrInfo.endDate = `${end.slice(0,2)}/${end.slice(2,4)}/${end.slice(4,6)}`;
             }
         }
         
-        // Stockage des données par client
-        let creditData = new Map(); // clientId -> records
-        let energieData = new Map(); // clientId -> records
+        let creditData = new Map();
+        let energieData = new Map();
         let tensionData = [];
         let ecData = { hasData: false, events: [] };
         let evnrData = { hasData: false, events: [] };
         let rechargeData = { hasData: false, events: [] };
         
-        // Parcourir tous les fichiers
         for (let file of files) {
-            if (!file.name.match(/\.txt$/i)) continue;
-            
-            let content = await readFile(file);
-            let hexTokens = extractHexTokens(content);
+            if (!file.name.endsWith('.txt')) continue;
+            let content = await file.text();
             let name = file.name;
             
-            // Crédit: CXX_...
             if (name.match(/^C\d+_/)) {
-                let clientMatch = name.match(/^C(\d+)_/);
-                if (clientMatch) {
-                    let clientId = parseInt(clientMatch[1]);
-                    let records = parseCreditEnergie(hexTokens, 0);
-                    creditData.set(clientId, records);
-                }
+                let match = name.match(/^C(\d+)_/);
+                if (match) creditData.set(parseInt(match[1]), parseCredit(content));
             }
-            // Energie: EXX_...
             else if (name.match(/^E\d+_/)) {
-                let clientMatch = name.match(/^E(\d+)_/);
-                if (clientMatch) {
-                    let clientId = parseInt(clientMatch[1]);
-                    let records = parseCreditEnergie(hexTokens, 0);
-                    energieData.set(clientId, records);
-                }
+                let match = name.match(/^E(\d+)_/);
+                if (match) energieData.set(parseInt(match[1]), parseEnergie(content));
             }
-            // Tension
-            else if (name.match(/^T_/)) {
-                tensionData = parseTension(hexTokens);
-            }
-            // Evenement Client
-            else if (name.match(/^EC_/)) {
-                ecData = parseEvenementClient(content);
-            }
-            // Evenement NanoReseau
-            else if (name.match(/^EvNR_/)) {
-                evnrData = parseEvNR(content);
-            }
-            // Recharge
-            else if (name.match(/^R_/)) {
-                rechargeData = parseRecharge(content);
-            }
+            else if (name.startsWith('T_')) tensionData = parseTension(content);
+            else if (name.startsWith('EC_')) ecData = parseEvenementClient(content);
+            else if (name.startsWith('EvNR_')) evnrData = parseEvNR(content);
+            else if (name.startsWith('R_')) rechargeData = parseRecharge(content);
         }
         
-        return {
-            nrInfo,
-            creditData,
-            energieData,
-            tensionData,
-            ecData,
-            evnrData,
-            rechargeData
-        };
+        return { nrInfo, creditData, energieData, tensionData, ecData, evnrData, rechargeData };
     }
     
     return { parseDirectory };

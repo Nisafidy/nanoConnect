@@ -1,4 +1,4 @@
-// main.js - UI avec sous-onglets clients
+// main.js
 document.addEventListener('DOMContentLoaded', () => {
     const folderInput = document.getElementById('folderInput');
     const uploadArea = document.getElementById('uploadArea');
@@ -9,58 +9,71 @@ document.addEventListener('DOMContentLoaded', () => {
     
     let currentData = null;
     let currentMainTab = 'credit';
-    let currentClientId = null;
+    let currentClient = null;
     
-    uploadArea.addEventListener('click', () => folderInput.click());
-    folderInput.addEventListener('change', async (e) => {
-        const files = Array.from(e.target.files);
-        if (files.length === 0) return;
-        
-        tablesContent.innerHTML = '<div style="text-align:center; padding:30px;">⏳ Analyse en cours...</div>';
-        
-        try {
-            currentData = await DataParser.parseDirectory(files);
-            displayInfo(currentData.nrInfo);
-            displayMainTabs();
-            displaySubTabsAndTable();
-        } catch(err) {
-            tablesContent.innerHTML = `<div class="error-msg">❌ Erreur parsing: ${err.message}</div>`;
-            console.error(err);
-        }
-    });
+    // Sauvegarde
+    const STORAGE_KEY = 'nanoreseau_data';
     
-    function displayInfo(nrInfo) {
-        if (!nrInfo.nrNumber) {
-            infoSection.style.display = 'block';
-            infoSection.innerHTML = `<div class="info-panel"><div class="error-msg">⚠️ Dossier non conforme au format NRXXX_JJMMAA1_JJMMAA2</div></div>`;
-            return;
+    function saveData() {
+        if (currentData) {
+            let toSave = {
+                nrInfo: currentData.nrInfo,
+                creditData: Array.from(currentData.creditData.entries()),
+                energieData: Array.from(currentData.energieData.entries()),
+                tensionData: currentData.tensionData,
+                ecData: currentData.ecData,
+                evnrData: currentData.evnrData,
+                rechargeData: currentData.rechargeData
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+        }
+    }
+    
+    function loadData() {
+        let saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            let data = JSON.parse(saved);
+            data.creditData = new Map(data.creditData);
+            data.energieData = new Map(data.energieData);
+            currentData = data;
+            return true;
+        }
+        return false;
+    }
+    
+    function clearData() {
+        localStorage.removeItem(STORAGE_KEY);
+        currentData = null;
+        location.reload();
+    }
+    
+    // Affichage
+    function display() {
+        if (!currentData) return;
+        
+        // Info
+        let nr = currentData.nrInfo;
+        let days = '---';
+        if (nr.startDate && nr.endDate) {
+            let [d1, m1, y1] = nr.startDate.split('/');
+            let [d2, m2, y2] = nr.endDate.split('/');
+            let date1 = new Date(2000 + parseInt(y1), parseInt(m1)-1, parseInt(d1));
+            let date2 = new Date(2000 + parseInt(y2), parseInt(m2)-1, parseInt(d2));
+            days = Math.ceil((date2 - date1) / 86400000);
         }
         
-        let nbJours = '---';
-        if (nrInfo.startDate && nrInfo.endDate) {
-            let [sDay, sMonth, sYear] = nrInfo.startDate.split('/');
-            let [eDay, eMonth, eYear] = nrInfo.endDate.split('/');
-            let d1 = new Date(2000 + parseInt(sYear), parseInt(sMonth)-1, parseInt(sDay));
-            let d2 = new Date(2000 + parseInt(eYear), parseInt(eMonth)-1, parseInt(eDay));
-            let diff = Math.ceil((d2 - d1) / (1000 * 3600 * 24));
-            nbJours = diff > 0 ? diff : 0;
-        }
-        
-        infoSection.style.display = 'block';
         infoSection.innerHTML = `
             <div class="info-panel">
-                <h2>🔌 NanoRéseau n°${nrInfo.nrNumber}</h2>
+                <h2>NanoRéseau n°${nr.nrNumber || '?'}</h2>
                 <div class="info-grid">
-                    <div class="info-card"><div class="info-label">Période début</div><div class="info-value">${nrInfo.startDate || '---'}</div></div>
-                    <div class="info-card"><div class="info-label">Période fin</div><div class="info-value">${nrInfo.endDate || '---'}</div></div>
-                    <div class="info-card"><div class="info-label">Nombre de jours comptés</div><div class="info-value">${nbJours}</div></div>
+                    <div class="info-card">Début: ${nr.startDate || '---'}</div>
+                    <div class="info-card">Fin: ${nr.endDate || '---'}</div>
+                    <div class="info-card">Jours: ${days}</div>
                 </div>
             </div>
         `;
-    }
-    
-    function displayMainTabs() {
-        mainTabsContainer.style.display = 'flex';
+        
+        // Onglets principaux
         mainTabsContainer.innerHTML = `
             <button class="main-tab-btn ${currentMainTab === 'credit' ? 'active' : ''}" data-tab="credit">💰 Crédit</button>
             <button class="main-tab-btn ${currentMainTab === 'energie' ? 'active' : ''}" data-tab="energie">⚡ Énergie</button>
@@ -68,254 +81,201 @@ document.addEventListener('DOMContentLoaded', () => {
             <button class="main-tab-btn ${currentMainTab === 'ec' ? 'active' : ''}" data-tab="ec">📋 Événements Client</button>
             <button class="main-tab-btn ${currentMainTab === 'evnr' ? 'active' : ''}" data-tab="evnr">🏭 Événements NR</button>
             <button class="main-tab-btn ${currentMainTab === 'recharge' ? 'active' : ''}" data-tab="recharge">🔋 Recharge</button>
+            <button class="main-tab-btn" id="clearBtn">🗑️ Effacer</button>
         `;
         
         document.querySelectorAll('.main-tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                currentMainTab = btn.dataset.tab;
-                displayMainTabs();
-                displaySubTabsAndTable();
+                if (btn.id === 'clearBtn') {
+                    clearData();
+                } else {
+                    currentMainTab = btn.dataset.tab;
+                    display();
+                }
             });
         });
-    }
-    
-    function displaySubTabsAndTable() {
+        
+        // Sous-onglets et tableau
         if (currentMainTab === 'credit') {
-            displayCreditSubTabs();
-        } else if (currentMainTab === 'energie') {
-            displayEnergieSubTabs();
-        } else {
-            subTabsContainer.style.display = 'none';
-            displayTable();
-        }
-    }
-    
-    function displayCreditSubTabs() {
-        if (!currentData || !currentData.creditData || currentData.creditData.size === 0) {
-            subTabsContainer.style.display = 'none';
-            tablesContent.innerHTML = '<div class="empty-data">📭 Aucune donnée Crédit trouvée</div>';
-            return;
-        }
-        
-        let clients = Array.from(currentData.creditData.keys()).sort((a,b) => a-b);
-        if (currentClientId === null || !clients.includes(currentClientId)) {
-            currentClientId = clients[0];
-        }
-        
-        subTabsContainer.style.display = 'flex';
-        let html = '';
-        for (let client of clients) {
-            html += `<button class="sub-tab-btn ${currentClientId === client ? 'active' : ''}" data-client="${client}">Client ${client}</button>`;
-        }
-        subTabsContainer.innerHTML = html;
-        
-        document.querySelectorAll('.sub-tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                currentClientId = parseInt(btn.dataset.client);
-                displayCreditSubTabs();
-                displayCreditTable();
+            let clients = Array.from(currentData.creditData.keys()).sort();
+            if (clients.length === 0) {
+                tablesContent.innerHTML = '<div class="empty-data">Aucune donnée Crédit</div>';
+                subTabsContainer.innerHTML = '';
+                return;
+            }
+            if (!currentClient || !clients.includes(currentClient)) currentClient = clients[0];
+            
+            subTabsContainer.innerHTML = clients.map(c => 
+                `<button class="sub-tab-btn ${currentClient === c ? 'active' : ''}" data-client="${c}">Client ${c}</button>`
+            ).join('');
+            
+            document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    currentClient = parseInt(btn.dataset.client);
+                    display();
+                });
             });
-        });
-        
-        displayCreditTable();
-    }
-    
-    function displayCreditTable() {
-        let records = currentData.creditData.get(currentClientId);
-        if (!records || records.length === 0) {
-            tablesContent.innerHTML = '<div class="empty-data">📭 Aucune donnée pour ce client</div>';
-            return;
-        }
-        
-        let html = '<div class="table-wrapper">';
-        html += '<table><thead><tr><th>Date session</th><th>Heure</th><th>Date mesure</th><th>Valeur Haute</th><th>Valeur Basse</th></tr></thead><tbody>';
-        
-        for (let record of records) {
-            for (let val of record.values) {
-                html += `<tr>
-                    <td>${record.date}</td>
-                    <td>${record.time}</td>
-                    <td>${val.date}</td>
-                    <td class="value-cell">${val.high}</td>
-                    <td class="value-cell">${val.low}</td>
-                </tr>`;
+            
+            let records = currentData.creditData.get(currentClient);
+            if (!records || records.length === 0) {
+                tablesContent.innerHTML = '<div class="empty-data">Aucune donnée</div>';
+            } else {
+                tablesContent.innerHTML = `
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Date session</th><th>Heure</th><th>Date mesure</th><th>Haute</th><th>Basse</th></tr></thead>
+                            <tbody>
+                                ${records.map(r => `<tr><td>${r.sessionDate}</td><td>${r.sessionTime}</td><td>${r.measureDate}</td><td>${r.high}</td><td>${r.low}</td></tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
             }
         }
-        
-        html += '</tbody></table></div>';
-        tablesContent.innerHTML = html;
-    }
-    
-    function displayEnergieSubTabs() {
-        if (!currentData || !currentData.energieData || currentData.energieData.size === 0) {
-            subTabsContainer.style.display = 'none';
-            tablesContent.innerHTML = '<div class="empty-data">📭 Aucune donnée Énergie trouvée</div>';
-            return;
-        }
-        
-        let clients = Array.from(currentData.energieData.keys()).sort((a,b) => a-b);
-        if (currentClientId === null || !clients.includes(currentClientId)) {
-            currentClientId = clients[0];
-        }
-        
-        subTabsContainer.style.display = 'flex';
-        let html = '';
-        for (let client of clients) {
-            html += `<button class="sub-tab-btn ${currentClientId === client ? 'active' : ''}" data-client="${client}">Client ${client}</button>`;
-        }
-        subTabsContainer.innerHTML = html;
-        
-        document.querySelectorAll('.sub-tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                currentClientId = parseInt(btn.dataset.client);
-                displayEnergieSubTabs();
-                displayEnergieTable();
+        else if (currentMainTab === 'energie') {
+            let clients = Array.from(currentData.energieData.keys()).sort();
+            if (clients.length === 0) {
+                tablesContent.innerHTML = '<div class="empty-data">Aucune donnée Énergie</div>';
+                subTabsContainer.innerHTML = '';
+                return;
+            }
+            if (!currentClient || !clients.includes(currentClient)) currentClient = clients[0];
+            
+            subTabsContainer.innerHTML = clients.map(c => 
+                `<button class="sub-tab-btn ${currentClient === c ? 'active' : ''}" data-client="${c}">Client ${c}</button>`
+            ).join('');
+            
+            document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    currentClient = parseInt(btn.dataset.client);
+                    display();
+                });
             });
-        });
-        
-        displayEnergieTable();
-    }
-    
-    function displayEnergieTable() {
-        let records = currentData.energieData.get(currentClientId);
-        if (!records || records.length === 0) {
-            tablesContent.innerHTML = '<div class="empty-data">📭 Aucune donnée pour ce client</div>';
-            return;
-        }
-        
-        let html = '<div class="table-wrapper">';
-        html += '<table><thead><tr><th>Date session</th><th>Heure</th><th>Date mesure</th><th>Valeur Haute</th><th>Valeur Basse</th></tr></thead><tbody>';
-        
-        for (let record of records) {
-            for (let val of record.values) {
-                html += `<tr>
-                    <td>${record.date}</td>
-                    <td>${record.time}</td>
-                    <td>${val.date}</td>
-                    <td class="value-cell">${val.high}</td>
-                    <td class="value-cell">${val.low}</td>
-                </tr>`;
+            
+            let records = currentData.energieData.get(currentClient);
+            if (!records || records.length === 0) {
+                tablesContent.innerHTML = '<div class="empty-data">Aucune donnée</div>';
+            } else {
+                tablesContent.innerHTML = `
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Date session</th><th>Heure</th><th>Date mesure</th><th>Haute</th><th>Basse</th></tr></thead>
+                            <tbody>
+                                ${records.map(r => `<tr><td>${r.sessionDate}</td><td>${r.sessionTime}</td><td>${r.measureDate}</td><td>${r.high}</td><td>${r.low}</td></tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
             }
         }
-        
-        html += '</tbody></table></div>';
-        tablesContent.innerHTML = html;
-    }
-    
-    function displayTable() {
-        if (currentMainTab === 'tension') {
-            displayTensionTable();
-        } else if (currentMainTab === 'ec') {
-            displayECTable();
-        } else if (currentMainTab === 'evnr') {
-            displayEvNRTable();
-        } else if (currentMainTab === 'recharge') {
-            displayRechargeTable();
-        }
-    }
-    
-    function displayTensionTable() {
-        let records = currentData.tensionData;
-        if (!records || records.length === 0) {
-            tablesContent.innerHTML = '<div class="empty-data">📭 Aucune donnée Tension trouvée</div>';
-            return;
-        }
-        
-        let html = '<div class="table-wrapper">';
-        html += '<table><thead><tr><th>Date session</th><th>Heure</th><th>Date mesure</th><th>Tension <span class="voltage-unit">(V)</span></th><th>Tension <span class="voltage-unit">(mV)</span></th></tr></thead><tbody>';
-        
-        for (let record of records) {
-            for (let val of record.values) {
-                html += `<tr>
-                    <td>${record.date}</td>
-                    <td>${record.time}</td>
-                    <td>${val.date}</td>
-                    <td class="value-cell"><strong>${val.volts}</strong> V</td>
-                    <td class="value-cell">${val.mV} mV</td>
-                </tr>`;
+        else if (currentMainTab === 'tension') {
+            subTabsContainer.innerHTML = '';
+            let records = currentData.tensionData;
+            if (!records || records.length === 0) {
+                tablesContent.innerHTML = '<div class="empty-data">Aucune donnée Tension</div>';
+            } else {
+                tablesContent.innerHTML = `
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Date session</th><th>Heure</th><th>Date mesure</th><th>Tension (V)</th><th>Tension (mV)</th></tr></thead>
+                            <tbody>
+                                ${records.map(r => `<tr><td>${r.sessionDate}</td><td>${r.sessionTime}</td><td>${r.measureDate}</td><td>${r.volts}</td><td>${r.value}</td></tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
             }
         }
-        
-        html += '</tbody></table></div>';
-        tablesContent.innerHTML = html;
+        else if (currentMainTab === 'ec') {
+            subTabsContainer.innerHTML = '';
+            if (!currentData.ecData.hasData) {
+                tablesContent.innerHTML = '<div class="empty-data">Aucun événement client</div>';
+            } else {
+                tablesContent.innerHTML = `
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Date</th><th>Heure</th><th>Client</th><th>État</th><th>P.Fort</th><th>P.Faible</th></tr></thead>
+                            <tbody>
+                                ${currentData.ecData.events.map(e => `<tr>
+                                    <td>${e.date}</td>
+                                    <td>${e.time}</td>
+                                    <td>${e.client}</td>
+                                    <td>Actif:${e.etat.actif} CréditNul:${e.etat.creditNul} EnergieEpuisée:${e.etat.energieEpuisee} Surcharge:${e.etat.surcharge} P.Dépassée:${e.etat.puissanceDepassee}</td>
+                                    <td>${e.pFort}</td>
+                                    <td>${e.pFaible}</td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+        }
+        else if (currentMainTab === 'evnr') {
+            subTabsContainer.innerHTML = '';
+            if (!currentData.evnrData.hasData) {
+                tablesContent.innerHTML = '<div class="empty-data">Aucun événement NR</div>';
+            } else {
+                tablesContent.innerHTML = `
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Date</th><th>Heure</th><th>Mode ECO</th><th>Délestage Total</th><th>Délestage Partiel</th><th>P.Fort</th><th>P.Faible</th></tr></thead>
+                            <tbody>
+                                ${currentData.evnrData.events.map(e => `<tr>
+                                    <td>${e.date}</td>
+                                    <td>${e.time}</td>
+                                    <td>${e.etat.modeEco}</td>
+                                    <td>${e.etat.delestageTotal}</td>
+                                    <td>${e.etat.delestagePartiel}</td>
+                                    <td>${e.pFort}</td>
+                                    <td>${e.pFaible}</td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+        }
+        else if (currentMainTab === 'recharge') {
+            subTabsContainer.innerHTML = '';
+            if (!currentData.rechargeData.hasData) {
+                tablesContent.innerHTML = '<div class="empty-data">Aucune donnée recharge</div>';
+            } else {
+                tablesContent.innerHTML = `
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Date</th><th>Heure</th><th>Type</th><th>P.Fort</th><th>P.Faible</th><th>Data</th></tr></thead>
+                            <tbody>
+                                ${currentData.rechargeData.events.map(e => `<tr>
+                                    <td>${e.date}</td>
+                                    <td>${e.time}</td>
+                                    <td>${Object.entries(e.typeCode).filter(([k,v]) => v === '✓').map(([k]) => k).join(', ')}</td>
+                                    <td>${e.pFort}</td>
+                                    <td>${e.pFaible}</td>
+                                    <td>${e.data1}, ${e.data2}, ${e.data3}, ${e.data4}</td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+        }
     }
     
-    function displayECTable() {
-        if (!currentData.ecData.hasData) {
-            tablesContent.innerHTML = '<div class="empty-data">📭 Aucun événement client sur cette période</div>';
-            return;
+    async function loadFromFiles(files) {
+        tablesContent.innerHTML = '<div class="empty-data">⏳ Analyse en cours...</div>';
+        try {
+            currentData = await window.DataParser.parseDirectory(files);
+            saveData();
+            display();
+        } catch(e) {
+            tablesContent.innerHTML = `<div class="empty-data">❌ Erreur: ${e.message}</div>`;
         }
-        
-        let events = currentData.ecData.events;
-        let html = '<div class="table-wrapper">';
-        html += '<table><thead><tr><th>Date</th><th>Heure</th><th>Client</th><th>État</th><th>P.Fort</th><th>P.Faible</th></tr></thead><tbody>';
-        
-        for (let e of events) {
-            let etatStr = `Actif:${e.etat.actif} CréditNul:${e.etat.creditNul} EnrÉpuisée:${e.etat.energieEpuisee} Surcharge:${e.etat.surcharge} P.Dép:${e.etat.puissanceDepassee}`;
-            html += `<tr>
-                <td>${e.date}</td>
-                <td>${e.time}</td>
-                <td>${e.client}</td>
-                <td><span class="status-bits">${etatStr}</span></td>
-                <td>${e.pFort}</td>
-                <td>${e.pFaible}</td>
-            </tr>`;
-        }
-        
-        html += '</tbody></table></div>';
-        tablesContent.innerHTML = html;
     }
     
-    function displayEvNRTable() {
-        if (!currentData.evnrData.hasData) {
-            tablesContent.innerHTML = '<div class="empty-data">📭 Aucun événement nano-réseau sur cette période</div>';
-            return;
-        }
-        
-        let events = currentData.evnrData.events;
-        let html = '<div class="table-wrapper">';
-        html += '<table><thead><tr><th>Date</th><th>Heure</th><th>Mode ECO</th><th>Délestage Total</th><th>Délestage Partiel</th><th>P.Fort</th><th>P.Faible</th></tr></thead><tbody>';
-        
-        for (let e of events) {
-            html += `<tr>
-                <td>${e.date}</td>
-                <td>${e.time}</td>
-                <td>${e.etat.modeEco}</td>
-                <td>${e.etat.delestageTotal}</td>
-                <td>${e.etat.delestagePartiel}</td>
-                <td>${e.pFort}</td>
-                <td>${e.pFaible}</td>
-            </tr>`;
-        }
-        
-        html += '</tbody></table></div>';
-        tablesContent.innerHTML = html;
-    }
+    uploadArea.addEventListener('click', () => folderInput.click());
+    folderInput.addEventListener('change', async (e) => {
+        if (e.target.files.length) await loadFromFiles(Array.from(e.target.files));
+    });
     
-    function displayRechargeTable() {
-        if (!currentData.rechargeData.hasData) {
-            tablesContent.innerHTML = '<div class="empty-data">📭 Aucune donnée de recharge sur cette période</div>';
-            return;
-        }
-        
-        let events = currentData.rechargeData.events;
-        let html = '<div class="table-wrapper">';
-        html += '</table><thead><tr><th>Date</th><th>Heure</th><th>Type Code</th><th>P.Fort</th><th>P.Faible</th><th>Data 1-4</th></tr></thead><tbody>';
-        
-        for (let e of events) {
-            let typeStr = Object.entries(e.typeCode).filter(([k,v]) => v === '✓').map(([k]) => k).join(', ') || 'aucun';
-            let dataStr = `${e.data1}, ${e.data2}, ${e.data3}, ${e.data4}`;
-            html += `<tr>
-                <td>${e.date}</td>
-                <td>${e.time}</td>
-                <td><span class="status-bits">${typeStr}</span></td>
-                <td>${e.pFort}</td>
-                <td>${e.pFaible}</td>
-                <td>${dataStr}</td>
-            </tr>`;
-        }
-        
-        html += '</tbody></table></div>';
-        tablesContent.innerHTML = html;
-    }
+    if (loadData()) display();
 });
